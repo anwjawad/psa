@@ -1,0 +1,5 @@
+**/node_modules/**
+**/.git/**
+_check_block_*.js
+js_check_tmp.js
+mock_stub.js

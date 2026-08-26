@@ -1,0 +1,496 @@
+<script>
+(function () {
+  'use strict';
+
+  // -------------------------------------------------------------------
+  // STEP DEFINITIONS — driven entirely by data so the render/nav engine
+  // below stays generic. Arabic text is copied verbatim from the source
+  // PSA_Eligibility_Checklist_Formatted_AR.docx — do not reword.
+  // -------------------------------------------------------------------
+  var STEPS = [
+    { id: 'region', type: 'region' },
+
+    { id: 'full_name', type: 'text', inputType: 'text', label: 'الاسم الكامل', autocomplete: 'name' },
+    { id: 'address', type: 'text', inputType: 'text', label: 'العنوان', autocomplete: 'street-address' },
+    { id: 'age', type: 'text', inputType: 'number', label: 'العمر', autocomplete: 'off', inputmode: 'numeric', min: 1, max: 120 },
+    { id: 'phone', type: 'text', inputType: 'tel', label: 'رقم الهاتف', autocomplete: 'tel', inputmode: 'tel' },
+    { id: 'smoker', type: 'yesno', label: 'هل أنت مدخن؟' },
+    { id: 'previous_psa', type: 'yesno', label: 'هل سبق وأجريت فحص PSA؟' },
+    { id: 'previous_psa_result', type: 'text', inputType: 'text', label: 'كم كانت نتيجة فحص PSA؟',
+      showIf: function (a) { return a.previous_psa === 'Yes'; } },
+
+    { id: 'q1_age50_good_health', type: 'yesno',
+      label: 'عمري 50 سنة أو أكثر، وصحتي العامة جيدة' },
+    { id: 'q3_age40_family_history_early', type: 'yesno',
+      label: 'عمري 40 سنة أو أكثر، ولدي أكثر من قريب واحد من الدرجة الأولى مصاب بسرطان البروستاتا في عمر مبكر (قبل 65 سنة)' },
+    { id: 'q4_family_history_breast_ovarian_pancreatic_brca', type: 'yesno',
+      label: 'لدي تاريخ عائلي لسرطان الثدي أو المبيض، أو البنكرياس، أو طفرة جينية معروفة (BRCA1/BRCA2)' },
+    { id: 'q5_urinary_symptoms', type: 'yesno',
+      label: 'أعاني من أعراض بولية مثل: صعوبة في التبول، كثرة التبول، ضعف تيار البول، أو الاستيقاظ المتكرر ليلاً للتبول' },
+    { id: 'back_pain_pelvic_numbness', type: 'yesno',
+      label: 'أعاني من آلام أسفل الظهر، الحوض، خدران أو تنميل في أطراف القدمين' },
+    { id: 'unexplained_weight_loss', type: 'yesno',
+      label: 'هل تعاني من فقدان وزن غير مبرر في الآونة الأخيرة؟' },
+    { id: 'q6_no_psa_last_2_years', type: 'yesno',
+      label: 'لم أقم بإجراء فحص PSA خلال آخر سنتين' },
+    { id: 'q7_chronic_disease', type: 'yesno',
+      label: 'هل تعاني من أمراض مزمنة؟' },
+    { id: 'chronic_multiselect', type: 'multiselect',
+      label: 'حدد الأمراض المزمنة (يمكن اختيار أكثر من واحد):',
+      showIf: function (a) { return a.q7_chronic_disease === 'Yes'; },
+      options: [
+        { key: 'bph', label: 'تضخم البروستاتا' },
+        { key: 'uti', label: 'التهاب المسالك البولية' },
+        { key: 'hypertension', label: 'الضغط' },
+        { key: 'diabetes', label: 'السكري' }
+      ] },
+    { id: 'q8_no_previous_prostate_cancer', type: 'yesno',
+      label: 'لا يوجد لدي تشخيص سابق بسرطان البروستاتا' },
+    { id: 'previous_cancer_following_specialist', type: 'yesno',
+      label: 'هل تتابع حاليًا مع طبيب مختص؟',
+      showIf: function (a) { return a.q8_no_previous_prostate_cancer === 'No'; } },
+    { id: 'bph_medications', type: 'yesno',
+      label: 'هل تأخذ علاجات لتضخم البروستاتا؟' },
+    { id: 'q9_wants_psa', type: 'yesno',
+      label: 'أرغب بإجراء فحص PSA بعد أن فهمت فوائده ومخاطره المحتملة، بالتشاور مع الطاقم الطبي' },
+
+    { id: 'review', type: 'review' },
+    { id: 'success', type: 'success' }
+  ];
+
+  var REGION_LABELS = { North: 'شمال', Central: 'وسط', South: 'جنوب' };
+  var YES_LABEL = 'نعم';
+  var NO_LABEL = 'لا';
+
+  // -------------------------------------------------------------------
+  // STATE — all in memory only. Nothing patient-related is ever written
+  // to localStorage/sessionStorage.
+  // -------------------------------------------------------------------
+  var answers = {};
+  var currentIndex = 0;
+  var clientSubmissionId = null;
+  var submitInFlight = false;
+
+  var appEl = document.getElementById('app');
+
+  function uuid() {
+    if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+    // Fallback UUID v4 generator for older WebViews.
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      var r = (Math.random() * 16) | 0;
+      var v = c === 'x' ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
+  }
+
+  function visibleSteps() {
+    return STEPS.filter(function (s) {
+      return s.type !== 'region' && s.type !== 'success' && (!s.showIf || s.showIf(answers));
+    });
+  }
+
+  function stepById(id) {
+    for (var i = 0; i < STEPS.length; i++) if (STEPS[i].id === id) return STEPS[i];
+    return null;
+  }
+
+  function goToStepIndex(idx) {
+    currentIndex = idx;
+    render();
+  }
+
+  function goNextFrom(stepId) {
+    var idx = STEPS.findIndex(function (s) { return s.id === stepId; });
+    for (var i = idx + 1; i < STEPS.length; i++) {
+      var s = STEPS[i];
+      if (!s.showIf || s.showIf(answers)) {
+        goToStepIndex(i);
+        return;
+      }
+    }
+  }
+
+  function goBackFrom(stepId) {
+    var idx = STEPS.findIndex(function (s) { return s.id === stepId; });
+    for (var i = idx - 1; i >= 0; i--) {
+      var s = STEPS[i];
+      if (s.type === 'region') { goToStepIndex(i); return; }
+      if (!s.showIf || s.showIf(answers)) { goToStepIndex(i); return; }
+    }
+  }
+
+  function el(tag, attrs, children) {
+    var e = document.createElement(tag);
+    attrs = attrs || {};
+    Object.keys(attrs).forEach(function (k) {
+      if (k === 'text') e.textContent = attrs[k];
+      else if (k === 'html') e.innerHTML = attrs[k];
+      else if (k.indexOf('on') === 0 && typeof attrs[k] === 'function') e.addEventListener(k.substring(2), attrs[k]);
+      else e.setAttribute(k, attrs[k]);
+    });
+    (children || []).forEach(function (c) { if (c) e.appendChild(c); });
+    return e;
+  }
+
+  // -------------------------------------------------------------------
+  // CHROME — compact header + progress bar (hidden on region/success)
+  // -------------------------------------------------------------------
+  function renderChrome(container) {
+    var header = el('header', { class: 'app-header' }, [
+      el('p', { class: 'app-header__hospital', text: 'Augusta Victoria Hospital' }),
+      el('p', { class: 'app-header__campaign', text: 'حملة التوعية والكشف المبكر عن سرطان البروستاتا' }),
+      el('h1', { class: 'app-header__title', text: 'قائمة تحقق أهلية فحص البروستاتا PSA' }),
+      el('p', { class: 'app-header__disclaimer', text: 'هذا الاستبيان أداة فحص أولية ولا يغني عن استشارة الطبيب المختص.' })
+    ]);
+    container.appendChild(header);
+  }
+
+  function renderProgress(container, step) {
+    var visible = visibleSteps();
+    var pos = visible.indexOf(step) + 1;
+    var total = visible.length;
+    var pct = Math.round((pos / total) * 100);
+    var wrap = el('div', { class: 'progress-wrap' }, [
+      el('div', { class: 'progress-label', text: 'سؤال ' + pos + ' من ' + total }),
+      el('div', { class: 'progress-track' }, [
+        el('div', { class: 'progress-fill', style: 'width:' + pct + '%' })
+      ])
+    ]);
+    container.appendChild(wrap);
+  }
+
+  // -------------------------------------------------------------------
+  // RENDER — dispatches on step.type
+  // -------------------------------------------------------------------
+  function render() {
+    appEl.innerHTML = '';
+    var step = STEPS[currentIndex];
+
+    if (step.type === 'region') return renderRegion(step);
+    if (step.type === 'success') return renderSuccess(step);
+
+    renderChrome(appEl);
+    renderProgress(appEl, step);
+
+    if (step.type === 'text') return renderTextStep(step);
+    if (step.type === 'yesno') return renderYesNoStep(step);
+    if (step.type === 'multiselect') return renderMultiselectStep(step);
+    if (step.type === 'review') return renderReview(step);
+  }
+
+  function renderRegion(step) {
+    var screen = el('div', { class: 'region-screen' }, [
+      el('h1', { text: 'من أي منطقة أنت؟' })
+    ]);
+    [['North', REGION_LABELS.North], ['Central', REGION_LABELS.Central], ['South', REGION_LABELS.South]]
+      .forEach(function (pair) {
+        screen.appendChild(el('button', {
+          class: 'region-btn', type: 'button',
+          onclick: function () {
+            answers.region = pair[0];
+            goToStepIndex(currentIndex + 1);
+          },
+          text: pair[1]
+        }));
+      });
+    appEl.appendChild(screen);
+  }
+
+  function renderTextStep(step) {
+    var wrap = el('div', { class: 'step' });
+    var card = el('div', { class: 'card' });
+    card.appendChild(el('label', { class: 'field-label', for: 'input-' + step.id, text: step.label }));
+
+    var input = el('input', {
+      class: 'text-input',
+      id: 'input-' + step.id,
+      type: step.inputType,
+      autocomplete: step.autocomplete || 'off'
+    });
+    if (step.inputmode) input.setAttribute('inputmode', step.inputmode);
+    if (step.min !== undefined) input.setAttribute('min', step.min);
+    if (step.max !== undefined) input.setAttribute('max', step.max);
+    if (answers[step.id] !== undefined) input.value = answers[step.id];
+
+    var error = el('div', { class: 'field-error', id: 'error-' + step.id });
+    card.appendChild(input);
+    card.appendChild(error);
+    wrap.appendChild(card);
+
+    var nav = el('div', { class: 'nav-row' });
+    nav.appendChild(el('button', { class: 'btn btn-secondary', type: 'button', text: 'رجوع', onclick: function () { goBackFrom(step.id); } }));
+    var nextBtn = el('button', { class: 'btn btn-primary', type: 'button', text: 'التالي' });
+    nextBtn.addEventListener('click', function () { attemptAdvanceText(step, input, error); });
+    nav.appendChild(nextBtn);
+    wrap.appendChild(nav);
+
+    input.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') { ev.preventDefault(); attemptAdvanceText(step, input, error); }
+    });
+
+    appEl.appendChild(wrap);
+    setTimeout(function () { input.focus(); }, 50);
+  }
+
+  function attemptAdvanceText(step, input, errorEl) {
+    var val = input.value.trim();
+    var msg = validateTextStep(step, val);
+    if (msg) {
+      errorEl.textContent = msg;
+      errorEl.classList.add('is-visible');
+      input.focus();
+      return;
+    }
+    errorEl.classList.remove('is-visible');
+    answers[step.id] = val;
+    goNextFrom(step.id);
+  }
+
+  function validateTextStep(step, val) {
+    if (step.id === 'previous_psa_result') return null; // optional detail field
+    if (!val) return 'هذا الحقل مطلوب.';
+    if (step.id === 'age') {
+      var n = Number(val);
+      if (!isFinite(n) || n < 1 || n > 120 || Math.floor(n) !== n) return 'يرجى إدخال عمر صحيح.';
+    }
+    if (step.id === 'phone') {
+      var digits = val.replace(/\D/g, '');
+      if (digits.length < 7) return 'يرجى إدخال رقم هاتف صحيح.';
+    }
+    return null;
+  }
+
+  function renderYesNoStep(step) {
+    var wrap = el('div', { class: 'step' });
+    var card = el('div', { class: 'card' }, [
+      el('p', { class: 'card__question', text: step.label })
+    ]);
+
+    var current = answers[step.id];
+    var row = el('div', { class: 'yesno-row', role: 'group', 'aria-label': step.label });
+
+    var yesBtn = el('button', {
+      class: 'yesno-btn yesno-btn--yes', type: 'button', 'aria-pressed': current === 'Yes' ? 'true' : 'false',
+      text: YES_LABEL
+    });
+    var noBtn = el('button', {
+      class: 'yesno-btn yesno-btn--no', type: 'button', 'aria-pressed': current === 'No' ? 'true' : 'false',
+      text: NO_LABEL
+    });
+
+    function choose(value, btn, otherBtn) {
+      answers[step.id] = value;
+      btn.setAttribute('aria-pressed', 'true');
+      otherBtn.setAttribute('aria-pressed', 'false');
+      setTimeout(function () { goNextFrom(step.id); }, 160);
+    }
+    yesBtn.addEventListener('click', function () { choose('Yes', yesBtn, noBtn); });
+    noBtn.addEventListener('click', function () { choose('No', noBtn, yesBtn); });
+
+    row.appendChild(yesBtn);
+    row.appendChild(noBtn);
+    card.appendChild(row);
+    wrap.appendChild(card);
+
+    var nav = el('div', { class: 'nav-row' });
+    nav.appendChild(el('button', { class: 'btn btn-secondary', type: 'button', text: 'رجوع', onclick: function () { goBackFrom(step.id); } }));
+    wrap.appendChild(nav);
+
+    appEl.appendChild(wrap);
+  }
+
+  function renderMultiselectStep(step) {
+    var wrap = el('div', { class: 'step' });
+    var card = el('div', { class: 'card' }, [
+      el('p', { class: 'card__question', text: step.label })
+    ]);
+
+    var state = answers.chronic || { bph: false, uti: false, hypertension: false, diabetes: false, other: false, otherText: '' };
+    answers.chronic = state;
+
+    step.options.forEach(function (opt) {
+      var checkboxId = 'chk-' + opt.key;
+      var checkbox = el('input', { type: 'checkbox', id: checkboxId });
+      checkbox.checked = !!state[opt.key];
+      checkbox.addEventListener('change', function () { state[opt.key] = checkbox.checked; });
+      card.appendChild(el('div', { class: 'check-row' }, [
+        checkbox,
+        el('label', { for: checkboxId, text: opt.label })
+      ]));
+    });
+
+    // "أخرى" — optional, never required
+    var otherCheckbox = el('input', { type: 'checkbox', id: 'chk-other' });
+    otherCheckbox.checked = !!state.other;
+    var otherText = el('input', { class: 'text-input', type: 'text', placeholder: 'حدد المرض (اختياري)' });
+    otherText.value = state.otherText || '';
+    otherText.style.marginTop = '10px';
+    otherText.style.display = state.other ? 'block' : 'none';
+    otherCheckbox.addEventListener('change', function () {
+      state.other = otherCheckbox.checked;
+      otherText.style.display = state.other ? 'block' : 'none';
+    });
+    otherText.addEventListener('input', function () { state.otherText = otherText.value; });
+
+    card.appendChild(el('div', { class: 'check-row' }, [
+      otherCheckbox,
+      el('label', { for: 'chk-other', text: 'أخرى' })
+    ]));
+    card.appendChild(otherText);
+
+    wrap.appendChild(card);
+
+    var nav = el('div', { class: 'nav-row' });
+    nav.appendChild(el('button', { class: 'btn btn-secondary', type: 'button', text: 'رجوع', onclick: function () { goBackFrom(step.id); } }));
+    nav.appendChild(el('button', {
+      class: 'btn btn-primary', type: 'button', text: 'التالي',
+      onclick: function () { goNextFrom(step.id); }
+    }));
+    wrap.appendChild(nav);
+
+    appEl.appendChild(wrap);
+  }
+
+  // -------------------------------------------------------------------
+  // REVIEW SCREEN
+  // -------------------------------------------------------------------
+  function renderReview(step) {
+    var wrap = el('div', { class: 'step' });
+    var card = el('div', { class: 'card' });
+
+    var rows = [
+      ['الاسم', answers.full_name, 'full_name'],
+      ['المنطقة', REGION_LABELS[answers.region] || '-', 'region'],
+      ['العمر', answers.age, 'age'],
+      ['رقم الهاتف', answers.phone, 'phone'],
+      ['مدخن؟', translateYesNo(answers.smoker), 'smoker'],
+      ['فحص PSA سابق؟', translateYesNo(answers.previous_psa), 'previous_psa']
+    ];
+    if (answers.previous_psa === 'Yes') {
+      rows.push(['نتيجة PSA السابقة', answers.previous_psa_result || '-', 'previous_psa_result']);
+    }
+
+    var list = el('div', { class: 'review-list' });
+    rows.forEach(function (r) {
+      var rowEl = el('div', { class: 'review-row', role: 'button', tabindex: '0' }, [
+        el('span', { class: 'review-row__label', text: r[0] }),
+        el('span', { class: 'review-row__value', text: String(r[1] == null ? '-' : r[1]) })
+      ]);
+      rowEl.addEventListener('click', function () { jumpToStepForEdit(r[2]); });
+      list.appendChild(rowEl);
+    });
+    card.appendChild(list);
+    card.appendChild(el('p', { class: 'field-hint', text: 'اضغط على أي حقل للعودة وتعديله قبل الإرسال.' }));
+    wrap.appendChild(card);
+
+    var errorBanner = el('div', { class: 'error-banner', id: 'submit-error' });
+    wrap.appendChild(errorBanner);
+
+    var submitBtn = el('button', { class: 'btn btn-submit btn-block', type: 'button', id: 'submit-btn' }, [
+      document.createTextNode('إرسال الاستمارة')
+    ]);
+    submitBtn.addEventListener('click', function () { handleSubmit(submitBtn, errorBanner); });
+    wrap.appendChild(submitBtn);
+
+    var back = el('div', { class: 'nav-row' }, [
+      el('button', { class: 'btn btn-secondary btn-block', type: 'button', text: 'رجوع', onclick: function () { goBackFrom(step.id); } })
+    ]);
+    wrap.appendChild(back);
+
+    appEl.appendChild(wrap);
+  }
+
+  function translateYesNo(v) {
+    if (v === 'Yes') return YES_LABEL;
+    if (v === 'No') return NO_LABEL;
+    return '-';
+  }
+
+  function jumpToStepForEdit(stepId) {
+    var idx = STEPS.findIndex(function (s) { return s.id === stepId; });
+    if (idx >= 0) goToStepIndex(idx);
+  }
+
+  // -------------------------------------------------------------------
+  // SUBMISSION
+  // -------------------------------------------------------------------
+  function buildPayload() {
+    if (!clientSubmissionId) clientSubmissionId = uuid();
+    return {
+      client_submission_id: clientSubmissionId,
+      region: answers.region,
+      full_name: answers.full_name,
+      address: answers.address,
+      age: Number(answers.age),
+      phone: answers.phone,
+      smoker: answers.smoker,
+      previous_psa: answers.previous_psa,
+      previous_psa_result: answers.previous_psa_result || '',
+      q1_age50_good_health: answers.q1_age50_good_health,
+      q3_age40_family_history_early: answers.q3_age40_family_history_early,
+      q4_family_history_breast_ovarian_pancreatic_brca: answers.q4_family_history_breast_ovarian_pancreatic_brca,
+      q5_urinary_symptoms: answers.q5_urinary_symptoms,
+      back_pain_pelvic_numbness: answers.back_pain_pelvic_numbness,
+      unexplained_weight_loss: answers.unexplained_weight_loss,
+      q6_no_psa_last_2_years: answers.q6_no_psa_last_2_years,
+      q7_chronic_disease: answers.q7_chronic_disease,
+      chronic: answers.chronic || {},
+      q8_no_previous_prostate_cancer: answers.q8_no_previous_prostate_cancer,
+      previous_cancer_following_specialist: answers.previous_cancer_following_specialist || '',
+      bph_medications: answers.bph_medications,
+      q9_wants_psa: answers.q9_wants_psa
+    };
+  }
+
+  function handleSubmit(submitBtn, errorBanner) {
+    if (submitInFlight) return; // guards double-click at the UI layer
+    submitInFlight = true;
+    submitBtn.disabled = true;
+    errorBanner.classList.remove('is-visible');
+    submitBtn.innerHTML = '';
+    submitBtn.appendChild(el('span', { class: 'spinner' }));
+    submitBtn.appendChild(document.createTextNode(' جارٍ الإرسال...'));
+
+    var payload = buildPayload();
+
+    google.script.run
+      .withSuccessHandler(function (result) {
+        submitInFlight = false;
+        if (result && result.success) {
+          goToStepIndex(STEPS.findIndex(function (s) { return s.id === 'success'; }));
+        } else {
+          showSubmitError(submitBtn, errorBanner, (result && result.error) || 'تعذر إرسال الاستمارة. يرجى المحاولة مرة أخرى.');
+        }
+      })
+      .withFailureHandler(function () {
+        submitInFlight = false;
+        showSubmitError(submitBtn, errorBanner, 'تعذر إرسال الاستمارة. يرجى المحاولة مرة أخرى.');
+      })
+      .submitPsaForm(payload);
+  }
+
+  function showSubmitError(submitBtn, errorBanner, message) {
+    errorBanner.textContent = message;
+    errorBanner.classList.add('is-visible');
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'إعادة المحاولة';
+  }
+
+  // -------------------------------------------------------------------
+  // SUCCESS SCREEN
+  // -------------------------------------------------------------------
+  function renderSuccess() {
+    var screen = el('div', { class: 'success-screen' }, [
+      el('div', { class: 'success-screen__icon', text: '✅' }),
+      el('h1', { class: 'success-screen__title', text: 'تم إرسال الاستمارة بنجاح' }),
+      el('p', { class: 'success-screen__text', text: 'شكرًا لمشاركتك في حملة التوعية والكشف المبكر عن سرطان البروستاتا.' })
+    ]);
+    appEl.appendChild(screen);
+  }
+
+  // -------------------------------------------------------------------
+  // BOOT
+  // -------------------------------------------------------------------
+  render();
+})();
+</script>
