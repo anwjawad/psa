@@ -26,12 +26,12 @@
   var REGION_LABELS = { North: 'شمال', Central: 'وسط', South: 'جنوب' };
 
   var appEl = document.getElementById('admin-app');
-  var passcode = null;
   var allPatients = [];
   var reviewerName = '';
-  var currentView = 'gate'; // 'gate' | 'list'
+  var currentView = 'loading'; // 'loading' | 'list'
   var modalPatientId = null;
   var searchTerm = '';
+  var regionFilter = 'All'; // 'All' | 'North' | 'Central' | 'South'
 
   function el(tag, attrs, children) {
     var e = document.createElement(tag);
@@ -50,49 +50,34 @@
 
   function render() {
     appEl.innerHTML = '';
-    if (currentView === 'gate') return renderGate();
+    if (currentView === 'loading') return renderLoading();
     if (currentView === 'list') { renderList(); renderModalLayer(); }
   }
 
   // -------------------------------------------------------------------
-  // GATE — passcode entry. No patient data is fetched until this succeeds.
+  // LOADING — data is fetched once on page open, no passcode gate.
   // -------------------------------------------------------------------
-  function renderGate() {
-    var error = el('div', { class: 'field-error', id: 'gate-error' });
-    var input = el('input', { class: 'text-input', type: 'password', placeholder: 'رمز الدخول', autocomplete: 'off' });
-
-    var submitBtn = el('button', { class: 'btn btn-primary btn-block', type: 'button', text: 'دخول' });
-    function attempt() {
-      var val = input.value.trim();
-      if (!val) return;
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'جارٍ التحقق...';
-      google.script.run
-        .withSuccessHandler(function (data) {
-          passcode = val;
-          allPatients = data || [];
-          currentView = 'list';
-          render();
-        })
-        .withFailureHandler(function (err) {
-          submitBtn.disabled = false;
-          submitBtn.textContent = 'دخول';
-          error.textContent = 'رمز الدخول غير صحيح.';
-          error.classList.add('is-visible');
-        })
-        .getAdminData(val);
-    }
-    submitBtn.addEventListener('click', attempt);
-    input.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') attempt(); });
-
+  function renderLoading() {
     var screen = el('div', { class: 'gate-screen' }, [
       el('h1', { text: 'لوحة إدارة استمارات PSA' }),
-      input,
-      error,
-      submitBtn
+      el('p', { class: 'field-hint', text: 'جارٍ التحميل...', style: 'text-align:center' })
     ]);
     appEl.appendChild(screen);
-    setTimeout(function () { input.focus(); }, 50);
+    fetchPatients();
+  }
+
+  function fetchPatients() {
+    google.script.run
+      .withSuccessHandler(function (data) {
+        allPatients = data || [];
+        currentView = 'list';
+        render();
+      })
+      .withFailureHandler(function () {
+        appEl.innerHTML = '';
+        appEl.appendChild(el('div', { class: 'empty-state', text: 'تعذر تحميل البيانات. أعد تحميل الصفحة.' }));
+      })
+      .getAdminData();
   }
 
   function showToast(msg) {
@@ -122,8 +107,9 @@
 
   function filteredPatients() {
     var term = searchTerm.trim().toLowerCase();
-    if (!term) return allPatients;
     return allPatients.filter(function (p) {
+      if (regionFilter !== 'All' && p.region !== regionFilter) return false;
+      if (!term) return true;
       var name = String(p.full_name || '').toLowerCase();
       var nid = String(p.national_id || '').toLowerCase();
       return name.indexOf(term) !== -1 || nid.indexOf(term) !== -1;
@@ -170,22 +156,40 @@
           refreshBtn.textContent = '⟳ تحديث';
           showToast('تعذر التحديث.');
         })
-        .getAdminData(passcode);
+        .getAdminData();
     });
     searchRow.appendChild(searchInput);
     searchRow.appendChild(refreshBtn);
     appEl.appendChild(searchRow);
+
+    var filterRow = el('div', { class: 'region-filter-row' });
+    [['All', 'الكل'], ['North', 'شمال'], ['Central', 'وسط'], ['South', 'جنوب']].forEach(function (pair) {
+      var chip = el('button', {
+        class: 'region-chip' + (regionFilter === pair[0] ? ' is-active' : ''),
+        type: 'button', text: pair[1]
+      });
+      chip.addEventListener('click', function () { regionFilter = pair[0]; renderList_updateOnly(); updateFilterChipsActive(filterRow); });
+      filterRow.appendChild(chip);
+    });
+    appEl.appendChild(filterRow);
 
     var listContainer = el('div', { id: 'patient-list-container' });
     appEl.appendChild(listContainer);
     renderPatientListInto(listContainer);
   }
 
-  // Re-renders just the list+count (used on every keystroke in search) so the
-  // search input never loses focus from a full appEl.innerHTML reset.
+  // Re-renders just the list+count (used on every keystroke in search, and on
+  // region-filter changes) so the search input never loses focus from a full
+  // appEl.innerHTML reset.
   function renderList_updateOnly() {
     var container = document.getElementById('patient-list-container');
     if (container) renderPatientListInto(container);
+  }
+
+  function updateFilterChipsActive(filterRow) {
+    Array.from(filterRow.children).forEach(function (chip) {
+      chip.classList.toggle('is-active', chip.textContent === ({ All: 'الكل', North: 'شمال', Central: 'وسط', South: 'جنوب' })[regionFilter]);
+    });
   }
 
   function renderPatientListInto(container) {
@@ -241,7 +245,7 @@
       .withFailureHandler(function () {
         showToast('تعذر حفظ القرار، حاول مرة أخرى.');
       })
-      .setEligibility(passcode, p.submission_id, decision, reviewerName);
+      .setEligibility(p.submission_id, decision, reviewerName);
   }
 
   // -------------------------------------------------------------------

@@ -19,11 +19,6 @@ var SHEET_NAME = 'PSA_RESPONSES';
 var SPREADSHEET_NAME = 'PSA_RESPONSES_DB — Prostate Awareness Campaign';
 var LOCK_WAIT_MS = 30000; // 30s max wait for the script lock
 
-// Default admin passcode set the FIRST time setupProject() runs (only if
-// ADMIN_PASSCODE isn't already set — never overwrites an existing one).
-// Change it any time from Script Properties without touching code.
-var DEFAULT_ADMIN_PASSCODE = 'A7GXL-DJLGD';
-
 // Canonical column order for the Google Sheet. [internalKey, HeaderText]
 // internalKey must match the keys sent from JavaScript.html (see buildRow_).
 var FIELD_MAP = [
@@ -345,20 +340,15 @@ function findRowByClientSubmissionId_(sheet, clientSubmissionId) {
 }
 
 // ---------------------------------------------------------------------------
-// ADMIN VIEW — accessed at <web-app-url>?admin=1, gated by ADMIN_PASSCODE
-// (Script Properties). This is a lightweight passcode gate, not a real
-// login system — the admin link + passcode must be shared only with staff
-// who should see patient data (names, national IDs, medical answers).
+// ADMIN VIEW — accessed at <web-app-url>?admin=1.
+//
+// ⚠️ NO ACCESS CONTROL: at the user's explicit request, this view has no
+// passcode and no login — anyone who has (or guesses/finds) the admin URL
+// can read every patient's name, national ID, phone, and medical answers,
+// and can set eligibility decisions. Do not link to it from anywhere public.
 // ---------------------------------------------------------------------------
 
 var VALID_STAFF_RECOMMENDATIONS = ['Eligible', 'Not Eligible', ''];
-
-function assertAdminPasscode_(passcode) {
-  var expected = PropertiesService.getScriptProperties().getProperty('ADMIN_PASSCODE');
-  if (!expected || !passcode || String(passcode) !== expected) {
-    throw new Error('رمز الدخول غير صحيح.');
-  }
-}
 
 /**
  * Returns every stored submission (all FIELD_MAP columns) for the admin
@@ -366,8 +356,7 @@ function assertAdminPasscode_(passcode) {
  * small, so a single full fetch (filtered/searched client-side) keeps this
  * simple — no separate list/detail endpoints to keep in sync.
  */
-function getAdminData(passcode) {
-  assertAdminPasscode_(passcode);
+function getAdminData() {
   var sheet = getSheet_();
   var lastRow = sheet.getLastRow();
   var keys = FIELD_MAP.map(function (p) { return p[0]; });
@@ -394,8 +383,7 @@ function getAdminData(passcode) {
  * reviewerName is free text the admin UI asks for once per session purely
  * for an audit trail — it is never validated against an identity system.
  */
-function setEligibility(passcode, submissionId, decision, reviewerName) {
-  assertAdminPasscode_(passcode);
+function setEligibility(submissionId, decision, reviewerName) {
   if (VALID_STAFF_RECOMMENDATIONS.indexOf(decision) === -1) {
     throw new Error('قيمة غير صالحة.');
   }
@@ -441,9 +429,8 @@ function setEligibility(passcode, submissionId, decision, reviewerName) {
 
 /**
  * Creates the response spreadsheet (if not already configured) and writes
- * the header row. Safe to re-run: it will not duplicate the header, won't
- * overwrite an already-configured SPREADSHEET_ID, and won't overwrite an
- * already-set ADMIN_PASSCODE.
+ * the header row. Safe to re-run: it will not duplicate the header and
+ * won't overwrite an already-configured SPREADSHEET_ID.
  */
 function setupProject() {
   var props = PropertiesService.getScriptProperties();
@@ -462,10 +449,6 @@ function setupProject() {
   }
 
   props.setProperty('SHEET_NAME', SHEET_NAME);
-
-  if (!props.getProperty('ADMIN_PASSCODE')) {
-    props.setProperty('ADMIN_PASSCODE', DEFAULT_ADMIN_PASSCODE);
-  }
 
   var sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet) {
@@ -497,6 +480,5 @@ function setupProject() {
 
   Logger.log('Spreadsheet ready: ' + ss.getUrl());
   Logger.log('Spreadsheet ID: ' + ss.getId());
-  Logger.log('Admin passcode: ' + props.getProperty('ADMIN_PASSCODE'));
   return ss.getUrl();
 }

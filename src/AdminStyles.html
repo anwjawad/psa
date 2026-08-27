@@ -73,6 +73,28 @@
     font-weight: 700;
   }
 
+  /* ---------- Region quick-filter chips ---------- */
+  .region-filter-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .region-chip {
+    flex: 1;
+    min-height: 38px;
+    border-radius: 999px;
+    border: 1.5px solid var(--color-border);
+    background: #fff;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--color-text-muted);
+  }
+  .region-chip.is-active {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: #fff;
+  }
+
   .patient-count {
     font-size: 13px;
     color: var(--color-text-muted);
