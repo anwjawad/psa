@@ -11,6 +11,7 @@
     { id: 'region', type: 'region' },
 
     { id: 'full_name', type: 'text', inputType: 'text', label: 'الاسم الكامل', autocomplete: 'name' },
+    { id: 'national_id', type: 'text', inputType: 'text', label: 'رقم الهوية', autocomplete: 'off', inputmode: 'numeric' },
     { id: 'address', type: 'text', inputType: 'text', label: 'العنوان', autocomplete: 'street-address' },
     { id: 'age', type: 'text', inputType: 'number', label: 'العمر', autocomplete: 'off', inputmode: 'numeric', min: 1, max: 120 },
     { id: 'phone', type: 'text', inputType: 'tel', label: 'رقم الهاتف', autocomplete: 'tel', inputmode: 'tel' },
@@ -20,19 +21,24 @@
       showIf: function (a) { return a.previous_psa === 'Yes'; } },
 
     { id: 'q1_age50_good_health', type: 'yesno',
-      label: 'عمري 50 سنة أو أكثر، وصحتي العامة جيدة' },
+      label: 'هل عمرك 50 سنة أو أكثر، وصحتك العامة جيدة' },
     { id: 'q3_age40_family_history_early', type: 'yesno',
-      label: 'عمري 40 سنة أو أكثر، ولدي أكثر من قريب واحد من الدرجة الأولى مصاب بسرطان البروستاتا في عمر مبكر (قبل 65 سنة)' },
+      label: 'هل عمرك 40 او اكثر، ولديك اكثر من قريب واحد من الدرجة الاولى مصاب بسرطان البروستاتا في عمر قبل 65 سنة' },
     { id: 'q4_family_history_breast_ovarian_pancreatic_brca', type: 'yesno',
-      label: 'لدي تاريخ عائلي لسرطان الثدي أو المبيض، أو البنكرياس، أو طفرة جينية معروفة (BRCA1/BRCA2)' },
+      label: 'هل لديك تاريخ عائلي لسرطان الثدي أو المبيض، او البنكرياس، أو طفرة جينية معروفة (BRCA1/BRCA2)' },
     { id: 'q5_urinary_symptoms', type: 'yesno',
-      label: 'أعاني من أعراض بولية مثل: صعوبة في التبول، كثرة التبول، ضعف تيار البول، أو الاستيقاظ المتكرر ليلاً للتبول' },
+      label: 'هل تعاني من أعراض بولية مثل: صعوبة في التبول، كثرة التبول، ضعف تيار البول، أو الاستيقاظ المتكرر ليلاً للتبول' },
     { id: 'back_pain_pelvic_numbness', type: 'yesno',
-      label: 'أعاني من آلام أسفل الظهر، الحوض، خدران أو تنميل في أطراف القدمين' },
+      label: 'هل تعاني من آلام أسفل الظهر، الحوض، خدران أو تنميل في أطراف القدمين' },
     { id: 'unexplained_weight_loss', type: 'yesno',
       label: 'هل تعاني من فقدان وزن غير مبرر في الآونة الأخيرة؟' },
-    { id: 'q6_no_psa_last_2_years', type: 'yesno',
-      label: 'لم أقم بإجراء فحص PSA خلال آخر سنتين' },
+    // NOTE invert:true — displayed question asks the positive form ("did you
+    // have a PSA in the last 2 years?"), but the ORIGINAL source question
+    // (and the Q6_No_PSA_Last_2Years column) means "I have NOT had one".
+    // renderYesNoStep() flips the stored Yes/No so the column keeps its
+    // original, documented meaning regardless of how the question reads.
+    { id: 'q6_no_psa_last_2_years', type: 'yesno', invert: true,
+      label: 'هل قمت بإجراء فحص PSA خلال آخر سنتين' },
     { id: 'q7_chronic_disease', type: 'yesno',
       label: 'هل تعاني من أمراض مزمنة؟' },
     { id: 'chronic_multiselect', type: 'multiselect',
@@ -44,15 +50,20 @@
         { key: 'hypertension', label: 'الضغط' },
         { key: 'diabetes', label: 'السكري' }
       ] },
-    { id: 'q8_no_previous_prostate_cancer', type: 'yesno',
-      label: 'لا يوجد لدي تشخيص سابق بسرطان البروستاتا' },
+    // NOTE invert:true — same reasoning as q6 above: the displayed question
+    // now asks "do you have a previous diagnosis?" (positive form), but the
+    // Q8_No_Previous_Prostate_Cancer column means "I do NOT have one" (per
+    // the original source). The showIf below (=== 'No') therefore still
+    // correctly means "has a previous diagnosis" after the flip.
+    { id: 'q8_no_previous_prostate_cancer', type: 'yesno', invert: true,
+      label: 'هل يوجد لديك تشخيص سابق بسرطان البروستاتا' },
     { id: 'previous_cancer_following_specialist', type: 'yesno',
       label: 'هل تتابع حاليًا مع طبيب مختص؟',
       showIf: function (a) { return a.q8_no_previous_prostate_cancer === 'No'; } },
     { id: 'bph_medications', type: 'yesno',
       label: 'هل تأخذ علاجات لتضخم البروستاتا؟' },
     { id: 'q9_wants_psa', type: 'yesno',
-      label: 'أرغب بإجراء فحص PSA بعد أن فهمت فوائده ومخاطره المحتملة، بالتشاور مع الطاقم الطبي' },
+      label: 'هل ترغب بإجراء فحص PSA بعد أن فهمت فوائده ومخاطره المحتملة، بالتشاور مع الطاقم الطبي' },
 
     { id: 'review', type: 'review' },
     { id: 'success', type: 'success' }
@@ -70,6 +81,7 @@
   var currentIndex = 0;
   var clientSubmissionId = null;
   var submitInFlight = false;
+  var navDirection = 'forward'; // 'forward' | 'back' — drives the step transition animation
 
   var appEl = document.getElementById('app');
 
@@ -95,6 +107,7 @@
   }
 
   function goToStepIndex(idx) {
+    navDirection = idx >= currentIndex ? 'forward' : 'back';
     currentIndex = idx;
     render();
   }
@@ -117,6 +130,11 @@
       if (s.type === 'region') { goToStepIndex(i); return; }
       if (!s.showIf || s.showIf(answers)) { goToStepIndex(i); return; }
     }
+  }
+
+  /** CSS class driving the slide-in transition for the step that just became visible. */
+  function animClass() {
+    return navDirection === 'back' ? 'anim-back' : 'anim-forward';
   }
 
   function el(tag, attrs, children) {
@@ -179,7 +197,7 @@
   }
 
   function renderRegion(step) {
-    var screen = el('div', { class: 'region-screen' }, [
+    var screen = el('div', { class: 'region-screen ' + animClass() }, [
       el('h1', { text: 'من أي منطقة أنت؟' })
     ]);
     [['North', REGION_LABELS.North], ['Central', REGION_LABELS.Central], ['South', REGION_LABELS.South]]
@@ -197,7 +215,7 @@
   }
 
   function renderTextStep(step) {
-    var wrap = el('div', { class: 'step' });
+    var wrap = el('div', { class: 'step ' + animClass() });
     var card = el('div', { class: 'card' });
     card.appendChild(el('label', { class: 'field-label', for: 'input-' + step.id, text: step.label }));
 
@@ -257,29 +275,39 @@
       var digits = val.replace(/\D/g, '');
       if (digits.length < 7) return 'يرجى إدخال رقم هاتف صحيح.';
     }
+    if (step.id === 'national_id') {
+      var idDigits = val.replace(/\D/g, '');
+      if (idDigits.length < 4) return 'يرجى إدخال رقم هوية صحيح.';
+    }
     return null;
   }
 
   function renderYesNoStep(step) {
-    var wrap = el('div', { class: 'step' });
+    var wrap = el('div', { class: 'step ' + animClass() });
     var card = el('div', { class: 'card' }, [
       el('p', { class: 'card__question', text: step.label })
     ]);
 
+    // step.invert: the question is displayed in its natural (positive)
+    // phrasing, but the stored answer keeps the ORIGINAL column's meaning
+    // (see the STEPS definitions for q6/q8 above) — only the button-to-value
+    // mapping flips here; every other consumer of answers[step.id] (server
+    // validation, showIf conditions, the Sheet column) is unaffected.
     var current = answers[step.id];
+    var displayedCurrent = step.invert ? (current === 'Yes' ? 'No' : current === 'No' ? 'Yes' : undefined) : current;
     var row = el('div', { class: 'yesno-row', role: 'group', 'aria-label': step.label });
 
     var yesBtn = el('button', {
-      class: 'yesno-btn yesno-btn--yes', type: 'button', 'aria-pressed': current === 'Yes' ? 'true' : 'false',
+      class: 'yesno-btn yesno-btn--yes', type: 'button', 'aria-pressed': displayedCurrent === 'Yes' ? 'true' : 'false',
       text: YES_LABEL
     });
     var noBtn = el('button', {
-      class: 'yesno-btn yesno-btn--no', type: 'button', 'aria-pressed': current === 'No' ? 'true' : 'false',
+      class: 'yesno-btn yesno-btn--no', type: 'button', 'aria-pressed': displayedCurrent === 'No' ? 'true' : 'false',
       text: NO_LABEL
     });
 
-    function choose(value, btn, otherBtn) {
-      answers[step.id] = value;
+    function choose(displayedValue, btn, otherBtn) {
+      answers[step.id] = step.invert ? (displayedValue === 'Yes' ? 'No' : 'Yes') : displayedValue;
       btn.setAttribute('aria-pressed', 'true');
       otherBtn.setAttribute('aria-pressed', 'false');
       setTimeout(function () { goNextFrom(step.id); }, 160);
@@ -300,7 +328,7 @@
   }
 
   function renderMultiselectStep(step) {
-    var wrap = el('div', { class: 'step' });
+    var wrap = el('div', { class: 'step ' + animClass() });
     var card = el('div', { class: 'card' }, [
       el('p', { class: 'card__question', text: step.label })
     ]);
@@ -355,11 +383,12 @@
   // REVIEW SCREEN
   // -------------------------------------------------------------------
   function renderReview(step) {
-    var wrap = el('div', { class: 'step' });
+    var wrap = el('div', { class: 'step ' + animClass() });
     var card = el('div', { class: 'card' });
 
     var rows = [
       ['الاسم', answers.full_name, 'full_name'],
+      ['رقم الهوية', answers.national_id, 'national_id'],
       ['المنطقة', REGION_LABELS[answers.region] || '-', 'region'],
       ['العمر', answers.age, 'age'],
       ['رقم الهاتف', answers.phone, 'phone'],
@@ -420,6 +449,7 @@
       client_submission_id: clientSubmissionId,
       region: answers.region,
       full_name: answers.full_name,
+      national_id: answers.national_id,
       address: answers.address,
       age: Number(answers.age),
       phone: answers.phone,
@@ -480,7 +510,7 @@
   // SUCCESS SCREEN
   // -------------------------------------------------------------------
   function renderSuccess() {
-    var screen = el('div', { class: 'success-screen' }, [
+    var screen = el('div', { class: 'success-screen ' + animClass() }, [
       el('div', { class: 'success-screen__icon', text: '✅' }),
       el('h1', { class: 'success-screen__title', text: 'تم إرسال الاستمارة بنجاح' }),
       el('p', { class: 'success-screen__text', text: 'شكرًا لمشاركتك في حملة التوعية والكشف المبكر عن سرطان البروستاتا.' })

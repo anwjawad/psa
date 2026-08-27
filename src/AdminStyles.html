@@ -1,0 +1,212 @@
+<style>
+  /* Reuses color tokens / base resets from Styles.html; adds admin-only UI. */
+
+  #admin-app {
+    max-width: 720px;
+  }
+
+  .admin-header {
+    padding: 14px 4px;
+    border-bottom: 1px solid var(--color-border);
+    margin-bottom: 16px;
+  }
+  .admin-header h1 {
+    font-size: 18px;
+    margin: 0 0 2px;
+  }
+  .admin-header p {
+    font-size: 13px;
+    color: var(--color-text-muted);
+    margin: 0;
+  }
+
+  /* ---------- Passcode gate ---------- */
+  .gate-screen {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    justify-content: center;
+    min-height: 70vh;
+    padding: 0 4px;
+  }
+  .gate-screen h1 {
+    font-size: 20px;
+    text-align: center;
+    margin: 0 0 6px;
+  }
+
+  /* ---------- Reviewer name bar ---------- */
+  .reviewer-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .reviewer-bar label {
+    font-size: 13px;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+  }
+  .reviewer-bar input {
+    flex: 1;
+    font-size: 14px;
+    padding: 8px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+  }
+
+  /* ---------- Search ---------- */
+  .search-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .search-row input {
+    flex: 1;
+  }
+  .refresh-btn {
+    min-height: 48px;
+    padding: 0 16px;
+    border-radius: 12px;
+    border: 2px solid var(--color-border);
+    background: #fff;
+    font-weight: 700;
+  }
+
+  .patient-count {
+    font-size: 13px;
+    color: var(--color-text-muted);
+    margin-bottom: 10px;
+  }
+
+  /* ---------- Patient list ---------- */
+  .patient-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .patient-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 14px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .patient-card__row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+    cursor: pointer;
+  }
+  .patient-card__name {
+    font-size: 17px;
+    font-weight: 700;
+  }
+  .patient-card__meta {
+    font-size: 13px;
+    color: var(--color-text-muted);
+    margin-top: 2px;
+  }
+  .patient-card__date {
+    font-size: 12px;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+  }
+
+  .eligibility-row {
+    display: flex;
+    gap: 10px;
+  }
+  .elig-btn {
+    flex: 1;
+    min-height: 44px;
+    border-radius: 10px;
+    border: 2px dashed var(--color-border);
+    background: #fff;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--color-text-muted);
+  }
+  .elig-btn--eligible.is-suggested {
+    border-color: var(--color-success);
+    color: var(--color-success);
+  }
+  .elig-btn--not-eligible.is-suggested {
+    border-color: var(--color-danger);
+    color: var(--color-danger);
+  }
+  .elig-btn--eligible.is-confirmed {
+    border-style: solid;
+    background: var(--color-success);
+    border-color: var(--color-success);
+    color: #fff;
+  }
+  .elig-btn--not-eligible.is-confirmed {
+    border-style: solid;
+    background: var(--color-danger);
+    border-color: var(--color-danger);
+    color: #fff;
+  }
+  .elig-hint {
+    font-size: 11px;
+    text-align: center;
+    color: var(--color-text-muted);
+  }
+
+  .empty-state {
+    text-align: center;
+    color: var(--color-text-muted);
+    padding: 40px 10px;
+    font-size: 15px;
+  }
+
+  /* ---------- Detail view ---------- */
+  .detail-back {
+    margin-bottom: 12px;
+  }
+  .detail-qa {
+    display: flex;
+    flex-direction: column;
+  }
+  .detail-qa__row {
+    padding: 12px 4px;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .detail-qa__row:last-child { border-bottom: none; }
+  .detail-qa__label {
+    font-size: 13px;
+    color: var(--color-text-muted);
+    margin-bottom: 3px;
+  }
+  .detail-qa__value {
+    font-size: 16px;
+    font-weight: 600;
+  }
+  .detail-section-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--color-primary-dark);
+    margin: 18px 0 4px;
+    padding: 0 4px;
+  }
+
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--color-text);
+    color: #fff;
+    padding: 10px 18px;
+    border-radius: 10px;
+    font-size: 14px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    z-index: 50;
+  }
+  .toast.is-visible { opacity: 1; }
+</style>

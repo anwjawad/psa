@@ -8,6 +8,7 @@ Web App مخصص (ليس Google Form) لتحويل استمارة **"PSA Eligibi
 - **Script ID:** `1Gxk0elewDm8K-iqDQ3r-8VlDODStQrBxCi60E3DdZi7gGnriLYQtlNmP`
 - **Apps Script Editor:** https://script.google.com/d/1Gxk0elewDm8K-iqDQ3r-8VlDODStQrBxCi60E3DdZi7gGnriLYQtlNmP/edit
 - **Google Sheet (قاعدة البيانات):** `PSA_RESPONSES_DB — Prostate Awareness Campaign` (الرابط داخل حساب Google الذي شغّل `setupProject()`)
+- **صفحة الأدمن:** نفس رابط الـ Web App أعلاه + `?admin=1` — محمية برمز دخول (راجع "لوحة الأدمن" أدناه)
 
 ## الغرض
 
@@ -33,19 +34,22 @@ Google Sheet (PSA_RESPONSES)
 | ملف | الدور |
 |---|---|
 | [src/appsscript.json](src/appsscript.json) | Manifest: V8 runtime، إعدادات Web App |
-| [src/Code.gs](src/Code.gs) | كل المنطق السيرفري (doGet, submitPsaForm, validation, Lock, setupProject) |
-| [src/Index.html](src/Index.html) | هيكل الصفحة الأساسي (يجمع Styles + JavaScript) |
-| [src/Styles.html](src/Styles.html) | كل CSS (Mobile-first, RTL, Healthcare theme) |
-| [src/JavaScript.html](src/JavaScript.html) | محرّك الـ Wizard بالكامل (Vanilla JS، بدون مكتبات خارجية) |
+| [src/Code.gs](src/Code.gs) | كل المنطق السيرفري (doGet, submitPsaForm, validation, Lock, setupProject, دوال الأدمن) |
+| [src/Index.html](src/Index.html) | هيكل صفحة المريض (يجمع Styles + JavaScript) |
+| [src/Styles.html](src/Styles.html) | كل CSS المشترك (Mobile-first, RTL, Healthcare theme, حركة انتقال الأسئلة) |
+| [src/JavaScript.html](src/JavaScript.html) | محرّك الـ Wizard الخاص بالمريض بالكامل (Vanilla JS، بدون مكتبات خارجية) |
+| [src/Admin.html](src/Admin.html) | هيكل صفحة الأدمن (`?admin=1`) |
+| [src/AdminStyles.html](src/AdminStyles.html) | CSS خاص بلوحة الأدمن |
+| [src/AdminJavaScript.html](src/AdminJavaScript.html) | منطق لوحة الأدمن (بوابة الرمز، البحث، الأهلية، التفاصيل) |
 
 ## هيكل Google Sheet
 
 اسم الشيت: **`PSA_RESPONSES`** داخل Spreadsheet باسم **`PSA_RESPONSES_DB — Prostate Awareness Campaign`**.
 
-Header ثابت في الصف الأول (34 عمودًا)، أهمها:
+Header ثابت في الصف الأول (35 عمودًا)، أهمها:
 
 ```
-Submission_ID | Submitted_At | Client_Submission_ID | Region | Full_Name | Address | Age | Phone
+Submission_ID | Submitted_At | Client_Submission_ID | Region | Full_Name | National_ID | Address | Age | Phone
 | Smoker | Previous_PSA | Previous_PSA_Result
 | Q1_Age50_GoodHealth | Q3_Age40_FamilyHistory_EarlyOnset | Q4_FamilyHistory_Breast_Ovarian_Pancreatic_BRCA
 | Q5_Urinary_Symptoms | Back_Pain_Pelvic_Numbness | Unexplained_Weight_Loss | Q6_No_PSA_Last_2Years
@@ -53,8 +57,10 @@ Submission_ID | Submitted_At | Client_Submission_ID | Region | Full_Name | Addre
 | Chronic_Other | Chronic_Other_Text
 | Q8_No_Previous_Prostate_Cancer | Previous_Cancer_Following_Specialist | BPH_Medications | Q9_Wants_PSA
 | Age_Above_75 (محسوب تلقائيًا من العمر)
-| Staff_Recommendation | Staff_Notes | Staff_Reviewed_By | Staff_Reviewed_At (فارغة — محجوزة لـ Staff View مستقبلي)
+| Staff_Recommendation | Staff_Notes | Staff_Reviewed_By | Staff_Reviewed_At (تُملأ فقط من لوحة الأدمن)
 ```
+
+> ⚠️ **National_ID و Phone محفوظان كنص إجباريًا** (وليس رقمًا) — Apps Script يحوّل تلقائيًا أي نص كله أرقام إلى رقم عند الكتابة عبر `appendRow`، مما يحذف أي صفر في البداية (مثال: `0599123456` تصبح `599123456`). هذا مُعالَج في `buildRow_()` (بادئة اقتباس مضمّنة `'` — تقنية Apps Script الموثّقة لإجبار التخزين كنص) — **لا تُعدّل هذه الحقول يدويًا داخل الشيت بإدخال رقم مباشرة**، لأن الكتابة اليدوية العادية ستُسقط الصفر الأول من جديد.
 
 القائمة الكاملة والترتيب الدقيق موجودان في `FIELD_MAP` بأعلى [src/Code.gs](src/Code.gs) — هذا هو المصدر الوحيد للحقيقة (Single Source of Truth)، ويُستخدم لكل من إنشاء الـ Header وكتابة الصفوف، فلا يمكن أن يختلفا.
 
@@ -93,12 +99,20 @@ clasp update-deployment AKfycby9HptliHahlzHKlhWxqWKZAg-JfKtZsBrlgsAVTm6AxR9gpRBh
 
 رابط الـ Web App **يبقى كما هو** لأنه مرتبط بمعرّف الـ deployment وليس برقم الإصدار.
 
+## لوحة الأدمن
+
+**الرابط:** `<رابط الـ Web App>?admin=1` (نفس الرابط أعلاه + `?admin=1` في النهاية).
+
+- محمية برمز دخول واحد (Passcode) محفوظ في **Script Properties** باسم `ADMIN_PASSCODE` — **ليس** تسجيل دخول Google حقيقي، بل رمز نصي فقط. هذا قرار مقصود بناءً على طلب صريح (رابط بسيط بدون حسابات Google)، وليس بديلاً كاملاً عن نظام صلاحيات حقيقي — **شارك الرابط + الرمز فقط مع من يجب أن يرى بيانات المرضى** (تحوي الآن اسمًا ورقم هوية وإجابات طبية).
+- **لتغيير الرمز:** محرر Apps Script → ⚙️ Project Settings → Script Properties → عدّل `ADMIN_PASSCODE`.
+- **الوظائف:** قائمة كل المرضى (بحث بالاسم أو رقم الهوية) ← الضغط على اسم يفتح كل إجاباته ← بجانب كل مريض زرّا "مؤهل / غير مؤهل" مع اقتراح تلقائي (غير مؤهل إذا العمر ≥ 75 أو يوجد تشخيص سابق مسجَّل) — الاقتراح للعرض فقط، والقرار النهائي يدوي دائمًا ويُحفظ في `Staff_Recommendation`.
+
 ## كيفية اختبار المشروع
 
-- **اختبار وظيفي سريع:** افتح رابط الـ Web App على الموبايل وجرّب المسار كاملًا (منطقة → بيانات → أسئلة طبية → مراجعة → إرسال).
+- **اختبار وظيفي سريع:** افتح رابط الـ Web App على الموبايل وجرّب المسار كاملًا (منطقة → بيانات → أسئلة طبية → مراجعة → إرسال)، وافتح `?admin=1` للوحة الأدمن.
 - **اختبار الخادم (Server-side logic):** يمكن إعادة تفعيل دالة `doPost` مؤقتًا (محذوفة حاليًا من نسخة الإنتاج عمدًا) لإرسال طلبات HTTP مباشرة عبر PowerShell/`Invoke-RestMethod` ومحاكاة حالات التزامن (راجع تقرير الاختبار الكامل في محادثة التسليم، أو [ARCHITECTURE.md](ARCHITECTURE.md) لمنهجية الاختبار).
-- **إعداد أولي/بيئة جديدة:** شغّل `setupProject()` من المحرر مرة واحدة لإنشاء الشيت والـ Header.
+- **إعداد أولي/بيئة جديدة:** شغّل `setupProject()` من المحرر مرة واحدة لإنشاء الشيت والـ Header وضبط `ADMIN_PASSCODE` الافتراضي.
 
 ## الحالة الحالية
 
-الشيت فارغ من بيانات الاختبار (تم تنظيفها بعد التحقق) وجاهز لاستقبال بيانات المرضى الحقيقية.
+الشيت فارغ من بيانات الاختبار (تم تنظيفها بعد التحقق) وجاهز لاستقبال بيانات المرضى الحقيقية. آخر إضافات: حقل رقم الهوية، حركة انتقال مرئية بين الأسئلة، لوحة أدمن كاملة، وإصلاح فقدان الصفر الأول في رقم الهوية/الهاتف.

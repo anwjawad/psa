@@ -19,6 +19,11 @@ var SHEET_NAME = 'PSA_RESPONSES';
 var SPREADSHEET_NAME = 'PSA_RESPONSES_DB — Prostate Awareness Campaign';
 var LOCK_WAIT_MS = 30000; // 30s max wait for the script lock
 
+// Default admin passcode set the FIRST time setupProject() runs (only if
+// ADMIN_PASSCODE isn't already set — never overwrites an existing one).
+// Change it any time from Script Properties without touching code.
+var DEFAULT_ADMIN_PASSCODE = 'A7GXL-DJLGD';
+
 // Canonical column order for the Google Sheet. [internalKey, HeaderText]
 // internalKey must match the keys sent from JavaScript.html (see buildRow_).
 var FIELD_MAP = [
@@ -27,6 +32,7 @@ var FIELD_MAP = [
   ['client_submission_id', 'Client_Submission_ID'],
   ['region', 'Region'],
   ['full_name', 'Full_Name'],
+  ['national_id', 'National_ID'],
   ['address', 'Address'],
   ['age', 'Age'],
   ['phone', 'Phone'],
@@ -52,8 +58,8 @@ var FIELD_MAP = [
   ['bph_medications', 'BPH_Medications'],
   ['q9_wants_psa', 'Q9_Wants_PSA'],
   ['age_above_75', 'Age_Above_75'],
-  // Staff-only fields — never sent to or filled by the patient. Reserved so a
-  // future Staff View can write into the same row without a schema change.
+  // Staff-only fields — never sent to or filled by the patient. Written only
+  // by the Admin view (setEligibility below).
   ['staff_recommendation', 'Staff_Recommendation'],
   ['staff_notes', 'Staff_Notes'],
   ['staff_reviewed_by', 'Staff_Reviewed_By'],
@@ -68,13 +74,20 @@ var VALID_YES_NO = ['Yes', 'No'];
 // ---------------------------------------------------------------------------
 
 function doGet(e) {
+  var isAdmin = e && e.parameter && e.parameter.admin === '1';
+  if (isAdmin) {
+    return HtmlService.createTemplateFromFile('Admin')
+      .evaluate()
+      .setTitle('لوحة إدارة استمارات PSA')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1');
+  }
   return HtmlService.createTemplateFromFile('Index')
     .evaluate()
     .setTitle('قائمة تحقق أهلية فحص البروستاتا PSA')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no');
 }
 
-/** Allows Index.html to inline Styles.html / JavaScript.html at render time. */
+/** Allows Index.html/Admin.html to inline other HTML files at render time. */
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
@@ -162,9 +175,12 @@ function validatePayload_(payload) {
   }
   d.region = payload.region;
 
-  // Full name / address — required free text
+  // Full name / national ID / address — required free text
   d.full_name = sanitizeText_(payload.full_name, 200);
   if (!d.full_name) return { ok: false, error: 'يرجى إدخال الاسم الكامل.' };
+
+  d.national_id = sanitizeNationalId_(payload.national_id);
+  if (!d.national_id) return { ok: false, error: 'يرجى إدخال رقم هوية صحيح.' };
 
   d.address = sanitizeText_(payload.address, 200);
   if (!d.address) return { ok: false, error: 'يرجى إدخال العنوان.' };
@@ -233,12 +249,29 @@ function validatePayload_(payload) {
   return { ok: true, data: d };
 }
 
+/**
+ * Strips control characters (NUL, other C0 codes, DEL) and caps length.
+ * Deliberately implemented with charCodeAt comparisons rather than a
+ * \x-escaped regex character class, to avoid any ambiguity in how such
+ * escapes get stored/interpreted — this way the intent is unambiguous.
+ */
 function sanitizeText_(value, maxLen) {
   if (value === undefined || value === null) return '';
-  var s = String(value).trim();
-  // Strip control characters and cap length; keep Arabic/Latin text intact.
-  s = s.replace(/[\r\n\t]+/g, ' ').replace(/[ --]/g, '');
-  if (s.length > maxLen) s = s.substring(0, maxLen);
+  var s = String(value).trim().replace(/[\r\n\t]+/g, ' ');
+  var out = '';
+  for (var i = 0; i < s.length; i++) {
+    var code = s.charCodeAt(i);
+    if (code >= 32 && code !== 127) out += s.charAt(i);
+  }
+  if (out.length > maxLen) out = out.substring(0, maxLen);
+  return out;
+}
+
+function sanitizeNationalId_(value) {
+  if (value === undefined || value === null) return '';
+  // Digits only — never used arithmetically, kept as a string throughout.
+  var s = String(value).trim().replace(/\D/g, '');
+  if (s.length < 4 || s.length > 15) return '';
   return s;
 }
 
@@ -269,10 +302,24 @@ function getSheet_() {
   return sheet;
 }
 
+// appendRow()/setValues() apply Sheets' own "as-typed" auto-detection to
+// digit-only strings and silently convert them to numbers — which DROPS
+// leading zeros in national IDs and phone numbers. A leading straight quote
+// is Apps Script's documented way to force a value to be stored as literal
+// text regardless of what it looks like; the quote itself is never stored
+// or displayed. Pre-setting the column to Plain Text (setupProject) is not
+// sufficient on its own — appendRow can still re-detect a numeric format
+// for the newly written cell.
+var FORCE_TEXT_KEYS = ['submission_id', 'client_submission_id', 'national_id', 'phone'];
+
 function buildRow_(data) {
   return FIELD_MAP.map(function (pair) {
     var key = pair[0];
-    return (data[key] !== undefined && data[key] !== null) ? data[key] : '';
+    var val = (data[key] !== undefined && data[key] !== null) ? data[key] : '';
+    if (FORCE_TEXT_KEYS.indexOf(key) !== -1 && val !== '') {
+      val = "'" + val;
+    }
+    return val;
   });
 }
 
@@ -298,13 +345,97 @@ function findRowByClientSubmissionId_(sheet, clientSubmissionId) {
 }
 
 // ---------------------------------------------------------------------------
+// ADMIN VIEW — accessed at <web-app-url>?admin=1, gated by ADMIN_PASSCODE
+// (Script Properties). This is a lightweight passcode gate, not a real
+// login system — the admin link + passcode must be shared only with staff
+// who should see patient data (names, national IDs, medical answers).
+// ---------------------------------------------------------------------------
+
+var VALID_STAFF_RECOMMENDATIONS = ['Eligible', 'Not Eligible', ''];
+
+function assertAdminPasscode_(passcode) {
+  var expected = PropertiesService.getScriptProperties().getProperty('ADMIN_PASSCODE');
+  if (!expected || !passcode || String(passcode) !== expected) {
+    throw new Error('رمز الدخول غير صحيح.');
+  }
+}
+
+/**
+ * Returns every stored submission (all FIELD_MAP columns) for the admin
+ * dashboard. The dataset size expected for an awareness-campaign sheet is
+ * small, so a single full fetch (filtered/searched client-side) keeps this
+ * simple — no separate list/detail endpoints to keep in sync.
+ */
+function getAdminData(passcode) {
+  assertAdminPasscode_(passcode);
+  var sheet = getSheet_();
+  var lastRow = sheet.getLastRow();
+  var keys = FIELD_MAP.map(function (p) { return p[0]; });
+  if (lastRow < 2) return [];
+
+  var values = sheet.getRange(2, 1, lastRow - 1, keys.length).getValues();
+  return values.map(function (row) {
+    var obj = {};
+    keys.forEach(function (k, idx) { obj[k] = row[idx]; });
+    return obj;
+  });
+}
+
+/**
+ * Records (or clears) the staff eligibility call for one submission.
+ * reviewerName is free text the admin UI asks for once per session purely
+ * for an audit trail — it is never validated against an identity system.
+ */
+function setEligibility(passcode, submissionId, decision, reviewerName) {
+  assertAdminPasscode_(passcode);
+  if (VALID_STAFF_RECOMMENDATIONS.indexOf(decision) === -1) {
+    throw new Error('قيمة غير صالحة.');
+  }
+
+  var lock = LockService.getScriptLock();
+  var gotLock = lock.tryLock(LOCK_WAIT_MS);
+  if (!gotLock) {
+    throw new Error('الخادم مشغول، حاول مرة أخرى.');
+  }
+
+  try {
+    var sheet = getSheet_();
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) throw new Error('لا يوجد بيانات.');
+
+    var keys = FIELD_MAP.map(function (p) { return p[0]; });
+    var idCol = keys.indexOf('submission_id') + 1;
+    var recCol = keys.indexOf('staff_recommendation') + 1;
+    var byCol = keys.indexOf('staff_reviewed_by') + 1;
+    var atCol = keys.indexOf('staff_reviewed_at') + 1;
+
+    var ids = sheet.getRange(2, idCol, lastRow - 1, 1).getValues();
+    for (var i = 0; i < ids.length; i++) {
+      if (ids[i][0] === submissionId) {
+        var r = i + 2;
+        var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+        sheet.getRange(r, recCol).setValue(decision);
+        sheet.getRange(r, byCol).setValue(sanitizeText_(reviewerName, 100));
+        sheet.getRange(r, atCol).setValue(decision ? now : '');
+        SpreadsheetApp.flush();
+        return { success: true };
+      }
+    }
+    throw new Error('لم يتم العثور على هذا المريض.');
+  } finally {
+    try { lock.releaseLock(); } catch (e2) { /* not acquired */ }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // ONE-TIME SETUP — run manually from the Apps Script editor (or `clasp run`)
 // ---------------------------------------------------------------------------
 
 /**
  * Creates the response spreadsheet (if not already configured) and writes
- * the header row. Safe to re-run: it will not duplicate the header or
- * overwrite an already-configured SPREADSHEET_ID.
+ * the header row. Safe to re-run: it will not duplicate the header, won't
+ * overwrite an already-configured SPREADSHEET_ID, and won't overwrite an
+ * already-set ADMIN_PASSCODE.
  */
 function setupProject() {
   var props = PropertiesService.getScriptProperties();
@@ -324,6 +455,10 @@ function setupProject() {
 
   props.setProperty('SHEET_NAME', SHEET_NAME);
 
+  if (!props.getProperty('ADMIN_PASSCODE')) {
+    props.setProperty('ADMIN_PASSCODE', DEFAULT_ADMIN_PASSCODE);
+  }
+
   var sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet) {
     sheet = ss.getSheets()[0];
@@ -340,7 +475,20 @@ function setupProject() {
     sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
   }
 
+  // Force these columns to Plain Text formatting. Without this, Sheets
+  // auto-detects digit-only strings (national ID, phone, UUIDs) as numbers
+  // and SILENTLY DROPS leading zeros — a real corruption risk, not cosmetic.
+  var textOnlyKeys = ['submission_id', 'client_submission_id', 'national_id', 'phone'];
+  var keys = FIELD_MAP.map(function (p) { return p[0]; });
+  textOnlyKeys.forEach(function (key) {
+    var col = keys.indexOf(key) + 1;
+    if (col > 0) {
+      sheet.getRange(1, col, sheet.getMaxRows(), 1).setNumberFormat('@');
+    }
+  });
+
   Logger.log('Spreadsheet ready: ' + ss.getUrl());
   Logger.log('Spreadsheet ID: ' + ss.getId());
+  Logger.log('Admin passcode: ' + props.getProperty('ADMIN_PASSCODE'));
   return ss.getUrl();
 }
