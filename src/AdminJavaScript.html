@@ -3,24 +3,24 @@
   'use strict';
 
   // -------------------------------------------------------------------
-  // Question labels for the DETAIL view. Deliberately phrased to match the
-  // ORIGINAL source criterion (not the patient-facing reworded question),
-  // so a Yes/No here always means exactly what the column name says —
+  // Question labels — short, admin-only wording (deliberately different
+  // from the patient-facing question text) chosen so a full checklist
+  // reads as a fast one-line-per-item scan. Meaning always matches the
+  // ORIGINAL source criterion / the column's documented Yes/No sense —
   // no invert-mapping ambiguity for staff reviewing raw answers.
   // -------------------------------------------------------------------
   var QA_LABELS = [
-    ['q1_age50_good_health', 'العمر 50 سنة أو أكثر وصحة عامة جيدة'],
-    ['q3_age40_family_history_early', 'العمر 40+ مع قريب درجة أولى مصاب قبل 65 سنة'],
-    ['q4_family_history_breast_ovarian_pancreatic_brca', 'تاريخ عائلي لسرطان ثدي/مبيض/بنكرياس أو BRCA1/BRCA2'],
-    ['q5_urinary_symptoms', 'أعراض بولية (صعوبة/كثرة تبول، ضعف تيار، استيقاظ ليلي)'],
-    ['back_pain_pelvic_numbness', 'آلام أسفل الظهر/الحوض أو خدران بالقدمين'],
-    ['unexplained_weight_loss', 'فقدان وزن غير مبرر مؤخرًا'],
-    ['q6_no_psa_last_2_years', 'لم يقم بإجراء فحص PSA خلال آخر سنتين'],
-    ['q7_chronic_disease', 'يعاني من أمراض مزمنة'],
-    ['q8_no_previous_prostate_cancer', 'لا يوجد تشخيص سابق بسرطان البروستاتا'],
-    ['previous_cancer_following_specialist', 'يتابع حاليًا مع طبيب مختص (إن وُجد تشخيص سابق)'],
+    ['q1_age50_good_health', 'العمر ≥ 50 وصحة عامة جيدة'],
+    ['q3_age40_family_history_early', 'العمر ≥ 40 + قريب درجة أولى (قبل 65)'],
+    ['q4_family_history_breast_ovarian_pancreatic_brca', 'تاريخ عائلي ثدي/مبيض/بنكرياس أو BRCA'],
+    ['q5_urinary_symptoms', 'أعراض بولية (تبول/تيار/ليلي)'],
+    ['back_pain_pelvic_numbness', 'ألم ظهر/حوض أو خدران بالقدمين'],
+    ['unexplained_weight_loss', 'فقدان وزن غير مبرر'],
+    ['q6_no_psa_last_2_years', 'لا يوجد فحص PSA خلال سنتين'],
+    ['q7_chronic_disease', 'أمراض مزمنة'],
+    ['q8_no_previous_prostate_cancer', 'لا تشخيص سابق بسرطان البروستاتا'],
     ['bph_medications', 'يأخذ علاجات لتضخم البروستاتا'],
-    ['q9_wants_psa', 'يرغب بإجراء فحص PSA بعد فهم الفوائد والمخاطر']
+    ['q9_wants_psa', 'يرغب بإجراء PSA']
   ];
 
   var REGION_LABELS = { North: 'شمال', Central: 'وسط', South: 'جنوب' };
@@ -29,8 +29,8 @@
   var passcode = null;
   var allPatients = [];
   var reviewerName = '';
-  var currentView = 'gate'; // 'gate' | 'list' | 'detail'
-  var currentDetailId = null;
+  var currentView = 'gate'; // 'gate' | 'list'
+  var modalPatientId = null;
   var searchTerm = '';
 
   function el(tag, attrs, children) {
@@ -51,8 +51,7 @@
   function render() {
     appEl.innerHTML = '';
     if (currentView === 'gate') return renderGate();
-    if (currentView === 'list') return renderList();
-    if (currentView === 'detail') return renderDetail();
+    if (currentView === 'list') { renderList(); renderModalLayer(); }
   }
 
   // -------------------------------------------------------------------
@@ -132,7 +131,8 @@
   }
 
   // -------------------------------------------------------------------
-  // LIST VIEW
+  // LIST VIEW — compact, single-line-per-patient rows. Tapping a row
+  // opens the patient's full answers as a modal (see renderModalLayer).
   // -------------------------------------------------------------------
   function renderList() {
     var header = el('header', { class: 'admin-header' }, [
@@ -200,46 +200,33 @@
 
     var list = el('div', { class: 'patient-list' });
     items.slice().reverse().forEach(function (p) {
-      list.appendChild(buildPatientCard(p));
+      list.appendChild(buildPatientRow(p));
     });
     container.appendChild(list);
   }
 
-  function buildPatientCard(p) {
-    var row = el('div', { class: 'patient-card__row' }, [
-      el('div', {}, [
-        el('div', { class: 'patient-card__name', text: p.full_name || '(بدون اسم)' }),
-        el('div', { class: 'patient-card__meta', text: 'هوية: ' + (p.national_id || '-') + ' · العمر ' + p.age + ' · ' + (REGION_LABELS[p.region] || p.region) })
-      ]),
-      el('div', { class: 'patient-card__date', text: p.submitted_at || '' })
-    ]);
-    row.addEventListener('click', function () {
-      currentDetailId = p.submission_id;
-      currentView = 'detail';
-      render();
-    });
-
+  function eligibilityPill(p) {
     var suggestion = computeSuggestion(p);
     var confirmed = p.staff_recommendation; // '' | 'Eligible' | 'Not Eligible'
+    var isEligibleLook = confirmed ? confirmed === 'Eligible' : suggestion === 'Eligible';
+    var stateClass = confirmed ? 'is-confirmed' : 'is-suggested';
+    var kindClass = isEligibleLook ? 'pill--eligible' : 'pill--not-eligible';
+    var label = isEligibleLook ? 'مؤهل' : 'غير مؤهل';
+    return el('span', { class: 'pill ' + kindClass + ' ' + stateClass, text: label });
+  }
 
-    var eligBtn = el('button', {
-      class: 'elig-btn elig-btn--eligible' + (confirmed === 'Eligible' ? ' is-confirmed' : (!confirmed && suggestion === 'Eligible' ? ' is-suggested' : '')),
-      type: 'button', text: 'مؤهل'
-    });
-    var notEligBtn = el('button', {
-      class: 'elig-btn elig-btn--not-eligible' + (confirmed === 'Not Eligible' ? ' is-confirmed' : (!confirmed && suggestion === 'Not Eligible' ? ' is-suggested' : '')),
-      type: 'button', text: 'غير مؤهل'
-    });
-    eligBtn.addEventListener('click', function (ev) { ev.stopPropagation(); applyEligibility(p, 'Eligible'); });
-    notEligBtn.addEventListener('click', function (ev) { ev.stopPropagation(); applyEligibility(p, 'Not Eligible'); });
-
-    var eligRow = el('div', { class: 'eligibility-row' }, [eligBtn, notEligBtn]);
-    var hint = el('div', {
-      class: 'elig-hint',
-      text: confirmed ? ('قرار مؤكَّد' + (p.staff_reviewed_by ? ' — ' + p.staff_reviewed_by : '')) : ('اقتراح تلقائي: ' + (suggestion === 'Eligible' ? 'مؤهل' : 'غير مؤهل') + ' — اضغط للتأكيد')
-    });
-
-    return el('div', { class: 'patient-card' }, [row, eligRow, hint]);
+  function buildPatientRow(p) {
+    var main = el('div', { class: 'patient-row__main' }, [
+      el('div', { class: 'patient-row__name', text: p.full_name || '(بدون اسم)' }),
+      el('div', { class: 'patient-row__meta', text: (p.age || '-') + ' سنة · ' + (REGION_LABELS[p.region] || p.region) + ' · ' + (p.national_id || '-') })
+    ]);
+    var side = el('div', { class: 'patient-row__side' }, [
+      eligibilityPill(p),
+      el('span', { class: 'patient-row__chevron', text: '‹' })
+    ]);
+    var row = el('div', { class: 'patient-row' }, [side, main]);
+    row.addEventListener('click', function () { modalPatientId = p.submission_id; renderModalLayer(); });
+    return row;
   }
 
   function applyEligibility(p, decision) {
@@ -248,8 +235,8 @@
         p.staff_recommendation = decision;
         p.staff_reviewed_by = reviewerName;
         showToast(decision === 'Eligible' ? 'تم تعيينه كمؤهل.' : 'تم تعيينه كغير مؤهل.');
-        if (currentView === 'list') renderList_updateOnly();
-        if (currentView === 'detail') render();
+        renderList_updateOnly();
+        renderModalLayer();
       })
       .withFailureHandler(function () {
         showToast('تعذر حفظ القرار، حاول مرة أخرى.');
@@ -258,22 +245,33 @@
   }
 
   // -------------------------------------------------------------------
-  // DETAIL VIEW
+  // MODAL — the patient's full file. Overlays the list; the list behind
+  // it keeps its scroll position since it is never torn down.
   // -------------------------------------------------------------------
-  function renderDetail() {
-    var p = allPatients.filter(function (x) { return x.submission_id === currentDetailId; })[0];
-    if (!p) { currentView = 'list'; return render(); }
+  function renderModalLayer() {
+    var existing = document.getElementById('patient-modal-backdrop');
+    if (existing) existing.remove();
+    if (!modalPatientId) return;
 
-    var backBtn = el('button', { class: 'btn btn-secondary detail-back', type: 'button', text: '← رجوع للقائمة' });
-    backBtn.addEventListener('click', function () { currentView = 'list'; render(); });
-    appEl.appendChild(backBtn);
+    var p = allPatients.filter(function (x) { return x.submission_id === modalPatientId; })[0];
+    if (!p) { modalPatientId = null; return; }
 
-    var header = el('header', { class: 'admin-header' }, [
-      el('h1', { text: p.full_name || '(بدون اسم)' }),
-      el('p', { text: 'رقم الهوية: ' + (p.national_id || '-') + ' · تاريخ الإرسال: ' + (p.submitted_at || '-') })
+    var backdrop = el('div', { class: 'modal-backdrop', id: 'patient-modal-backdrop' });
+    backdrop.addEventListener('click', function (ev) { if (ev.target === backdrop) closeModal(); });
+
+    var closeBtn = el('button', { class: 'modal-close', type: 'button', text: '×' });
+    closeBtn.addEventListener('click', closeModal);
+
+    var headerMetaParts = [(p.national_id || '-'), (p.age || '-') + ' سنة', REGION_LABELS[p.region] || p.region, p.submitted_at || ''];
+    var header = el('div', { class: 'modal-header' }, [
+      closeBtn,
+      el('div', { class: 'modal-header__name', text: p.full_name || '(بدون اسم)' }),
+      el('div', { class: 'modal-header__meta', text: headerMetaParts.join(' · ') })
     ]);
-    appEl.appendChild(header);
 
+    var body = el('div', { class: 'modal-body' });
+
+    // Eligibility action — the one thing staff is most likely to do here.
     var eligBtn = el('button', {
       class: 'elig-btn elig-btn--eligible' + (p.staff_recommendation === 'Eligible' ? ' is-confirmed' : ''),
       type: 'button', text: 'مؤهل'
@@ -284,60 +282,75 @@
     });
     eligBtn.addEventListener('click', function () { applyEligibility(p, 'Eligible'); });
     notEligBtn.addEventListener('click', function () { applyEligibility(p, 'Not Eligible'); });
-    appEl.appendChild(el('div', { class: 'eligibility-row' }, [eligBtn, notEligBtn]));
-    appEl.appendChild(el('div', {
+    body.appendChild(el('div', { class: 'eligibility-row' }, [eligBtn, notEligBtn]));
+    body.appendChild(el('div', {
       class: 'elig-hint',
-      text: p.staff_recommendation ? ('قرار مؤكَّد بواسطة: ' + (p.staff_reviewed_by || '-') + ' في ' + (p.staff_reviewed_at || '-'))
-        : ('اقتراح تلقائي: ' + (computeSuggestion(p) === 'Eligible' ? 'مؤهل' : 'غير مؤهل'))
+      text: p.staff_recommendation
+        ? ('قرار مؤكَّد' + (p.staff_reviewed_by ? ' بواسطة ' + p.staff_reviewed_by : '') + (p.staff_reviewed_at ? ' — ' + p.staff_reviewed_at : ''))
+        : ('اقتراح تلقائي: ' + (computeSuggestion(p) === 'Eligible' ? 'مؤهل' : 'غير مؤهل') + ' — اضغط للتأكيد')
     }));
 
-    appEl.appendChild(el('div', { class: 'detail-section-title', text: 'البيانات الشخصية' }));
-    var demo = el('div', { class: 'detail-qa' });
+    // Quick-scan summary — the handful of facts a reviewer checks first.
+    var summary = el('div', { class: 'summary-grid' });
     [
-      ['المنطقة', REGION_LABELS[p.region] || p.region],
-      ['العنوان', p.address],
-      ['العمر', p.age],
-      ['رقم الهاتف', p.phone],
+      ['العنوان', p.address || '-'],
+      ['الهاتف', p.phone || '-'],
       ['مدخن؟', yesNo(p.smoker)],
-      ['فحص PSA سابق؟', yesNo(p.previous_psa)],
-      ['نتيجة PSA السابقة', p.previous_psa_result || '-']
-    ].forEach(function (r) { demo.appendChild(qaRow(r[0], r[1])); });
-    appEl.appendChild(demo);
-
-    appEl.appendChild(el('div', { class: 'detail-section-title', text: 'معايير الأهلية' }));
-    var qa = el('div', { class: 'detail-qa' });
-    QA_LABELS.forEach(function (pair) {
-      qa.appendChild(qaRow(pair[1], yesNo(p[pair[0]])));
+      ['PSA سابق؟', p.previous_psa === 'Yes' ? ('نعم' + (p.previous_psa_result ? ' (' + p.previous_psa_result + ')' : '')) : 'لا']
+    ].forEach(function (pair) {
+      summary.appendChild(el('div', { class: 'summary-chip' }, [
+        el('div', { class: 'summary-chip__label', text: pair[0] }),
+        el('div', { class: 'summary-chip__value', text: String(pair[1]) })
+      ]));
     });
-    appEl.appendChild(qa);
+    body.appendChild(summary);
 
+    // Eligibility criteria — one line per question, colored pill value.
+    body.appendChild(el('div', { class: 'detail-section-title', text: 'معايير الأهلية' }));
+    var qa = el('div', { class: 'qa-compact' });
+    QA_LABELS.forEach(function (pair) {
+      var val = p[pair[0]];
+      qa.appendChild(el('div', { class: 'qa-compact__row' }, [
+        el('span', { class: 'qa-compact__label', text: pair[1] }),
+        el('span', { class: 'qa-compact__pill qa-compact__pill--' + (val === 'Yes' ? 'yes' : 'no'), text: yesNo(val) })
+      ]));
+    });
+    if (p.q8_no_previous_prostate_cancer === 'No') {
+      qa.appendChild(el('div', { class: 'qa-compact__row' }, [
+        el('span', { class: 'qa-compact__label', text: 'يتابع حاليًا مع طبيب مختص' }),
+        el('span', {
+          class: 'qa-compact__pill qa-compact__pill--' + (p.previous_cancer_following_specialist === 'Yes' ? 'yes' : 'no'),
+          text: yesNo(p.previous_cancer_following_specialist)
+        })
+      ]));
+    }
+    body.appendChild(qa);
+
+    // Chronic disease — one summary line instead of a repeated Yes/No block.
     if (p.q7_chronic_disease === 'Yes') {
-      appEl.appendChild(el('div', { class: 'detail-section-title', text: 'تفاصيل الأمراض المزمنة' }));
-      var chronic = el('div', { class: 'detail-qa' });
-      [
-        ['تضخم البروستاتا', yesNo(p.chronic_bph)],
-        ['التهاب المسالك البولية', yesNo(p.chronic_uti)],
-        ['الضغط', yesNo(p.chronic_hypertension)],
-        ['السكري', yesNo(p.chronic_diabetes)],
-        ['أخرى', p.chronic_other === 'Yes' ? (p.chronic_other_text || 'نعم') : 'لا']
-      ].forEach(function (r) { chronic.appendChild(qaRow(r[0], r[1])); });
-      appEl.appendChild(chronic);
+      var chronicList = [];
+      if (p.chronic_bph === 'Yes') chronicList.push('تضخم البروستاتا');
+      if (p.chronic_uti === 'Yes') chronicList.push('التهاب المسالك البولية');
+      if (p.chronic_hypertension === 'Yes') chronicList.push('الضغط');
+      if (p.chronic_diabetes === 'Yes') chronicList.push('السكري');
+      if (p.chronic_other === 'Yes') chronicList.push(p.chronic_other_text || 'أخرى');
+      body.appendChild(el('div', { class: 'detail-section-title', text: 'الأمراض المزمنة' }));
+      body.appendChild(el('div', { class: 'chip-line' }, [
+        document.createTextNode(chronicList.length ? chronicList.join('، ') : 'لم يُحدَّد نوعها')
+      ]));
     }
 
-    appEl.appendChild(el('div', { class: 'detail-section-title', text: 'معرّفات النظام' }));
-    var sys = el('div', { class: 'detail-qa' });
-    [
-      ['رقم الاستمارة', p.submission_id],
-      ['وقت الإرسال (خادم)', p.submitted_at]
-    ].forEach(function (r) { sys.appendChild(qaRow(r[0], r[1])); });
-    appEl.appendChild(sys);
+    body.appendChild(el('div', { class: 'detail-section-title', text: 'رقم الاستمارة (للمرجعية)' }));
+    body.appendChild(el('div', { class: 'chip-line', html: '<span style="color:var(--color-text-muted);font-size:12px">' + p.submission_id + '</span>' }));
+
+    var card = el('div', { class: 'modal-card' }, [header, body]);
+    backdrop.appendChild(card);
+    document.body.appendChild(backdrop);
   }
 
-  function qaRow(label, value) {
-    return el('div', { class: 'detail-qa__row' }, [
-      el('div', { class: 'detail-qa__label', text: label }),
-      el('div', { class: 'detail-qa__value', text: String(value == null || value === '' ? '-' : value) })
-    ]);
+  function closeModal() {
+    modalPatientId = null;
+    renderModalLayer();
   }
 
   render();
