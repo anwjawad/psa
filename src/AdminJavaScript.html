@@ -66,10 +66,17 @@
     fetchPatients();
   }
 
+  // Stable patient number = row order in the Sheet (1 = first ever
+  // submitted). Assigned once per fetch so it never shifts when the list
+  // is searched/filtered/re-sorted for display.
+  function withSeq(data) {
+    return (data || []).map(function (p, i) { p._seq = i + 1; return p; });
+  }
+
   function fetchPatients() {
     google.script.run
       .withSuccessHandler(function (data) {
-        allPatients = data || [];
+        allPatients = withSeq(data);
         currentView = 'list';
         render();
       })
@@ -146,7 +153,7 @@
       refreshBtn.textContent = '...';
       google.script.run
         .withSuccessHandler(function (data) {
-          allPatients = data || [];
+          allPatients = withSeq(data);
           refreshBtn.disabled = false;
           refreshBtn.textContent = '⟳ تحديث';
           render();
@@ -221,7 +228,10 @@
 
   function buildPatientRow(p) {
     var main = el('div', { class: 'patient-row__main' }, [
-      el('div', { class: 'patient-row__name', text: p.full_name || '(بدون اسم)' }),
+      el('div', { class: 'patient-row__name' }, [
+        el('span', { class: 'patient-row__seq', text: '#' + p._seq + ' ' }),
+        document.createTextNode(p.full_name || '(بدون اسم)')
+      ]),
       el('div', { class: 'patient-row__meta', text: (p.age || '-') + ' سنة · ' + (REGION_LABELS[p.region] || p.region) + ' · ' + (p.national_id || '-') })
     ]);
     var side = el('div', { class: 'patient-row__side' }, [
@@ -269,7 +279,7 @@
     var headerMetaParts = [(p.national_id || '-'), (p.age || '-') + ' سنة', REGION_LABELS[p.region] || p.region, p.submitted_at || ''];
     var header = el('div', { class: 'modal-header' }, [
       closeBtn,
-      el('div', { class: 'modal-header__name', text: p.full_name || '(بدون اسم)' }),
+      el('div', { class: 'modal-header__name', text: '#' + p._seq + ' — ' + (p.full_name || '(بدون اسم)') }),
       el('div', { class: 'modal-header__meta', text: headerMetaParts.join(' · ') })
     ]);
 
