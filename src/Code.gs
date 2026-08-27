@@ -310,7 +310,7 @@ function getSheet_() {
 // or displayed. Pre-setting the column to Plain Text (setupProject) is not
 // sufficient on its own — appendRow can still re-detect a numeric format
 // for the newly written cell.
-var FORCE_TEXT_KEYS = ['submission_id', 'client_submission_id', 'national_id', 'phone'];
+var FORCE_TEXT_KEYS = ['submission_id', 'client_submission_id', 'national_id', 'phone', 'submitted_at'];
 
 function buildRow_(data) {
   return FIELD_MAP.map(function (pair) {
@@ -373,10 +373,18 @@ function getAdminData(passcode) {
   var keys = FIELD_MAP.map(function (p) { return p[0]; });
   if (lastRow < 2) return [];
 
+  var tz = Session.getScriptTimeZone();
   var values = sheet.getRange(2, 1, lastRow - 1, keys.length).getValues();
   return values.map(function (row) {
     var obj = {};
-    keys.forEach(function (k, idx) { obj[k] = row[idx]; });
+    keys.forEach(function (k, idx) {
+      var val = row[idx];
+      // google.script.run cannot reliably carry a Date object back to the
+      // client (older/legacy rows may have one if a date-like string was
+      // ever auto-detected by Sheets before FORCE_TEXT_KEYS existed) —
+      // always normalize to a plain string first.
+      obj[k] = (val instanceof Date) ? Utilities.formatDate(val, tz, 'yyyy-MM-dd HH:mm:ss') : val;
+    });
     return obj;
   });
 }
@@ -416,7 +424,7 @@ function setEligibility(passcode, submissionId, decision, reviewerName) {
         var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
         sheet.getRange(r, recCol).setValue(decision);
         sheet.getRange(r, byCol).setValue(sanitizeText_(reviewerName, 100));
-        sheet.getRange(r, atCol).setValue(decision ? now : '');
+        sheet.getRange(r, atCol).setValue(decision ? ("'" + now) : '');
         SpreadsheetApp.flush();
         return { success: true };
       }
